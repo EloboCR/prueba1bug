@@ -1,0 +1,52 @@
+# TEMPLATE — CBS Cache Unicode Normalization Producer
+# Controlled Boundary Suite · GitHub Bug Bounty
+#
+# PURPOSE: Produce a cache entry from an NFD-encoded branch.
+# This workflow runs on the NFD branch and creates a cache entry with a predictable key.
+# Later, a consumer on the NFC branch will attempt to restore it.
+name: cbs-06c67822-cache-producer
+
+on:
+  push:
+    branches:
+      - 'release-06c67822-*'
+
+permissions:
+  contents: read
+
+jobs:
+  produce-cache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create probe payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p .elobo-cache-probe
+          printf 'PRODUCER_RUN_ID=%s\n' "${GITHUB_RUN_ID}" > .elobo-cache-probe/payload.txt
+          printf 'PRODUCER_REF=%s\n' "${GITHUB_REF}" >> .elobo-cache-probe/payload.txt
+          printf 'PRODUCER_SHA=%s\n' "${GITHUB_SHA}" >> .elobo-cache-probe/payload.txt
+          printf 'PRODUCER_REF_NAME=%s\n' "${GITHUB_REF_NAME}" >> .elobo-cache-probe/payload.txt
+          
+          # Print hex of the branch name to verify execution context
+          printf 'CBS_PRODUCER_REF_NAME_HEX='
+          printf '%s' "${GITHUB_REF_NAME}" | xxd -p | tr -d '\n'
+          echo ''
+
+          echo "Payload generated:"
+          cat .elobo-cache-probe/payload.txt
+
+      - name: Save cache
+        uses: actions/cache/save@v4
+        with:
+          path: .elobo-cache-probe
+          key: cbs-cache-06c67822
+
+      - name: Report
+        shell: bash
+        run: |
+          printf 'CBS_CACHE_KEY=cbs-cache-06c67822\n'
+          printf 'CBS_PRODUCER_STATUS=CACHE_SAVED\n'
+          printf 'CBS_PRODUCER_STATUS=CACHE_SAVED\n' >> "$GITHUB_STEP_SUMMARY"
