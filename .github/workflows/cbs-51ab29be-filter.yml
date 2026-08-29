@@ -1,0 +1,17 @@
+name: cbs-51ab29be-filter
+on:
+  push:
+    branches:
+      - 'cbs-51ab29be-café'
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report trigger
+        run: |
+          echo "CBS_TRIGGERED=true"
+          echo "CBS_FILTER_TEST_RUN_ID=51ab29be"
+          echo "CBS_REF_NAME=$GITHUB_REF_NAME"
+          printf 'CBS_REF_NAME_HEX='
+          printf '%s' "$GITHUB_REF_NAME" | xxd -p
+          echo ''
