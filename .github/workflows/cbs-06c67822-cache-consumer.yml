@@ -1,0 +1,54 @@
+# TEMPLATE — CBS Cache Unicode Normalization Consumer
+# Controlled Boundary Suite · GitHub Bug Bounty
+#
+# PURPOSE: Attempt to restore a cache entry from an NFC-encoded branch.
+# The producer workflow on the NFD branch saved a cache entry. This workflow
+# checks if the cache backend's boundary isolation normalizes Unicode.
+name: cbs-06c67822-cache-consumer
+
+on:
+  push:
+    branches:
+      - 'release-06c67822-*'
+
+permissions:
+  contents: read
+
+jobs:
+  consume-cache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Attempt cache restore
+        id: restore
+        uses: actions/cache/restore@v4
+        with:
+          path: .elobo-cache-probe
+          key: cbs-cache-06c67822
+
+      - name: Evaluate boundary isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          
+          printf 'CBS_CONSUMER_REF_NAME_HEX='
+          printf '%s' "${GITHUB_REF_NAME}" | xxd -p | tr -d '\n'
+          echo ''
+
+          CACHE_HIT="${{ steps.restore.outputs.cache-hit }}"
+          printf 'CBS_CACHE_HIT=%s\n' "$CACHE_HIT"
+
+          if [[ "$CACHE_HIT" == 'true' ]] || [[ -f .elobo-cache-probe/payload.txt ]]; then
+            printf 'CBS_CONSUMER_VERDICT=UNEXPECTED_CACHE_HIT\n'
+            printf 'CBS_CONSUMER_VERDICT=UNEXPECTED_CACHE_HIT\n' >> "$GITHUB_STEP_SUMMARY"
+            printf 'CRITICAL: Cache restored across NFC/NFD boundaries.\n' >> "$GITHUB_STEP_SUMMARY"
+            if [[ -f .elobo-cache-probe/payload.txt ]]; then
+              echo "Restored payload:"
+              cat .elobo-cache-probe/payload.txt
+            fi
+            exit 1
+          else
+            printf 'CBS_CONSUMER_VERDICT=EXPECTED_CACHE_MISS\n'
+            printf 'CBS_CONSUMER_VERDICT=EXPECTED_CACHE_MISS\n' >> "$GITHUB_STEP_SUMMARY"
+            printf 'Isolation intact: Consumer could not read producer cache.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
