@@ -1,0 +1,17 @@
+name: cbs-185b31de-filter
+on:
+  push:
+    branches:
+      - 'cbs-185b31de-café'
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report trigger
+        run: |
+          echo "CBS_TRIGGERED=true"
+          echo "CBS_FILTER_TEST_RUN_ID=185b31de"
+          echo "CBS_REF_NAME=$GITHUB_REF_NAME"
+          printf 'CBS_REF_NAME_HEX='
+          printf '%s' "$GITHUB_REF_NAME" | xxd -p
+          echo ''
