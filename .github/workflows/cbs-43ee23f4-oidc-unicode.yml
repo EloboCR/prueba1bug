@@ -1,0 +1,143 @@
+# TEMPLATE — CBS OIDC Unicode Normalization Probe
+# Controlled Boundary Suite · GitHub Bug Bounty
+#
+# PURPOSE: Request an OIDC token from a Unicode-named branch and capture the
+#          hex encoding of identity-critical claims (sub, ref, workflow_ref).
+#          This reveals whether GitHub normalizes Unicode NFC↔NFD in
+#          cryptographically signed identity tokens.
+#
+# SAFETY:
+#   - Never logs or persists the raw JWT.
+#   - Captures only: SHA-256 digest, redacted claim values, hex bytes.
+#   - Gated behind ELOBO_OIDC_AUDIENCE repository variable.
+#   - timeout-minutes: 5 per job.
+#
+# USAGE:
+#   1. Set repo variable ELOBO_OIDC_AUDIENCE to a controlled audience string.
+#   2. Copy this template to .github/workflows/ in the target repo.
+#   3. Replace 43ee23f4 with the orchestration run ID.
+#   4. Push to a release-43ee23f4-* branch to trigger.
+#
+# The orchestration script cbs_oidc_unicode_normalization.sh handles all of
+# the above automatically.
+name: cbs-43ee23f4-oidc-unicode
+on:
+  push:
+    branches:
+      - 'release-43ee23f4-*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  oidc-unicode-probe:
+    if: vars.ELOBO_OIDC_AUDIENCE != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Request OIDC token
+        id: oidc
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const audience = '${{ vars.ELOBO_OIDC_AUDIENCE }}';
+            const token = await core.getIDToken(audience);
+            core.setSecret(token);
+            core.setOutput('token', token);
+
+      - name: CBS OIDC Unicode Normalization Probe
+        shell: bash
+        env:
+          AUDIENCE: ${{ vars.ELOBO_OIDC_AUDIENCE }}
+          TOKEN: ${{ steps.oidc.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          echo "::group::CBS OIDC Unicode Probe — Metadata"
+          echo "CBS_OIDC_RUN_ID=43ee23f4"
+          echo "CBS_GITHUB_REF=${GITHUB_REF}"
+          echo "CBS_GITHUB_REF_NAME=${GITHUB_REF_NAME}"
+          echo "CBS_GITHUB_SHA=${GITHUB_SHA}"
+          echo "CBS_RUN_NUMBER=${GITHUB_RUN_ID}"
+          printf 'CBS_REF_NAME_HEX='
+          printf '%s' "$GITHUB_REF_NAME" | xxd -p | tr -d '\n'
+          echo ''
+          printf 'CBS_REF_HEX='
+          printf '%s' "$GITHUB_REF" | xxd -p | tr -d '\n'
+          echo ''
+          printf 'CBS_REF_NAME_BYTES='
+          printf '%s' "$GITHUB_REF_NAME" | wc -c | tr -d ' '
+          echo ''
+          echo "::endgroup::"
+
+          echo "::group::CBS OIDC Token Hash & Decode"
+          token="${TOKEN}"
+
+          # SHA-256 of full token (never expose the token itself)
+          token_sha256=$(printf '%s' "$token" | sha256sum | cut -d' ' -f1)
+          printf 'CBS_TOKEN_SHA256=%s\n' "$token_sha256"
+
+          # Decode payload (middle segment of JWT)
+          payload=$(printf '%s' "$token" | cut -d'.' -f2 | \
+            python3 -c "
+          import sys, base64, json
+          b64 = sys.stdin.read().strip()
+          # Add padding
+          b64 += '=' * (4 - len(b64) % 4)
+          raw = base64.urlsafe_b64decode(b64)
+          print(raw.decode('utf-8'))
+          ")
+          echo "::endgroup::"
+
+          echo "::group::CBS OIDC Claim Hex Analysis"
+
+          # Extract and hex-dump each identity-critical claim
+          for claim in sub ref workflow_ref job_workflow_ref environment repository_id repository_owner_id repository repository_owner runner_environment; do
+            value=$(printf '%s' "$payload" | jq -r --arg c "$claim" '.[$c] // "ABSENT"')
+            if [ "$value" != "ABSENT" ] && [ "$value" != "null" ]; then
+              printf 'CBS_CLAIM_%s=%s\n' "$(echo "$claim" | tr '[:lower:]' '[:upper:]')" "$value"
+              printf 'CBS_CLAIM_%s_HEX=' "$(echo "$claim" | tr '[:lower:]' '[:upper:]')"
+              printf '%s' "$value" | xxd -p | tr -d '\n'
+              echo ''
+              printf 'CBS_CLAIM_%s_BYTES=' "$(echo "$claim" | tr '[:lower:]' '[:upper:]')"
+              printf '%s' "$value" | wc -c | tr -d ' '
+              echo ''
+            else
+              printf 'CBS_CLAIM_%s=ABSENT\n' "$(echo "$claim" | tr '[:lower:]' '[:upper:]')"
+            fi
+          done
+
+          # Extract all claim names (keys only, no values for non-identity claims)
+          printf 'CBS_ALL_CLAIM_NAMES='
+          printf '%s' "$payload" | jq -c 'keys'
+          echo ''
+
+          # Redacted summary for step summary (safe subset)
+          printf '%s' "$payload" | jq -c '{
+            iss, aud, sub, ref, workflow_ref, job_workflow_ref,
+            environment, repository, repository_owner,
+            repository_id, repository_owner_id,
+            event_name, ref_type, run_id
+          }' | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::endgroup::"
+
+          echo "::group::CBS Consistency Check"
+          # Verify token binds to this execution context
+          if ! printf '%s' "$payload" | jq -e \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg ref "$GITHUB_REF" \
+            --arg audience "$AUDIENCE" \
+            '.repository == $repository and .ref == $ref and .aud == $audience' > /dev/null; then
+            printf 'CBS_CONSISTENCY=UNEXPECTED_CLAIM_BINDING\n'
+            printf 'CBS_CONSISTENCY=UNEXPECTED_CLAIM_BINDING\n' >> "$GITHUB_STEP_SUMMARY"
+            echo "STOP: Token claims do not match this workflow context." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          printf 'CBS_CONSISTENCY=EXPECTED_CLAIM_BINDING\n'
+          echo "::endgroup::"
+
+          # Scrub sensitive vars
+          unset token response payload REQUEST_TOKEN
