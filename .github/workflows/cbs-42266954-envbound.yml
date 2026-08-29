@@ -1,0 +1,33 @@
+name: cbs-42266954-envbound
+on:
+  push:
+    branches:
+      - 'release-42266954-*'
+jobs:
+  boundary-test:
+    runs-on: ubuntu-latest
+    environment: cbs-production-42266954
+    steps:
+      - name: CBS Environment Boundary Probe
+        env:
+          CBS_CANARY: ${{ secrets.CBS_CANARY_42266954 }}
+        run: |
+          echo "::group::CBS Environment Boundary Probe"
+          echo "CBS_ENV_BOUNDARY_RUN_ID=42266954"
+          echo "CBS_ENVIRONMENT=cbs-production-42266954"
+          echo "CBS_REF=$GITHUB_REF"
+          echo "CBS_REF_NAME=$GITHUB_REF_NAME"
+          printf 'CBS_REF_NAME_HEX='
+          printf '%s' "$GITHUB_REF_NAME" | xxd -p
+          echo ''
+          printf 'CBS_REF_NAME_LEN='
+          printf '%s' "$GITHUB_REF_NAME" | wc -c | tr -d ' '
+          echo ''
+          if [ -n "$CBS_CANARY" ]; then
+            echo "CBS_SECRET_ACCESSED=true"
+            echo "CBS_SECRET_LENGTH=${#CBS_CANARY}"
+            # Never print the secret value — only confirm access
+          else
+            echo "CBS_SECRET_ACCESSED=false"
+          fi
+          echo "::endgroup::"
