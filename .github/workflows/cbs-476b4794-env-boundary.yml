@@ -1,0 +1,45 @@
+# TEMPLATE — CBS Environment Boundary Canary Probe (Priority 4B)
+# Controlled Boundary Suite · GitHub Bug Bounty
+#
+# PURPOSE: Test if GitHub Actions Environment Branch Policies normalize Unicode.
+# The environment is strictly configured to only allow access from the NFC branch.
+# If we push to the NFD branch, will it be able to read the canary secret?
+name: cbs-476b4794-env-boundary
+
+on:
+  push:
+    branches:
+      - 'release-476b4794-*'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    environment: cbs-env-476b4794
+    steps:
+      - name: Extract Canary Secret
+        shell: bash
+        env:
+          CANARY: ${{ secrets.CBS_CANARY_SECRET }}
+        run: |
+          set -euo pipefail
+          
+          REF_LEN=$(printf '%s' "$GITHUB_REF_NAME" | wc -c | tr -d ' ')
+          REF_HEX=$(printf '%s' "$GITHUB_REF_NAME" | xxd -p | tr -d '\n')
+          
+          printf 'CBS_REF_NAME=%s\n' "${GITHUB_REF_NAME}"
+          printf 'CBS_REF_HEX=%s\n' "$REF_HEX"
+          printf 'CBS_REF_LEN=%s\n' "$REF_LEN"
+
+          if [[ -n "${CANARY:-}" ]]; then
+            printf 'CBS_CANARY_AVAILABLE=true\n'
+            # Emit length and SHA-256 hash to prove possession without leaking secret
+            CANARY_LEN=$(printf '%s' "$CANARY" | wc -c | tr -d ' ')
+            CANARY_HASH=$(printf '%s' "$CANARY" | sha256sum | awk '{print $1}')
+            printf 'CBS_CANARY_LEN=%s\n' "$CANARY_LEN"
+            printf 'CBS_CANARY_HASH=%s\n' "$CANARY_HASH"
+          else
+            printf 'CBS_CANARY_AVAILABLE=false\n'
+          fi
