@@ -1,0 +1,23 @@
+# TEMPLATE — CBS Environment Spoofing Attack (Priority 4)
+# Controlled Boundary Suite · GitHub Bug Bounty
+#
+# PURPOSE: Homoglyph/Spoofing attack. Targets the 'production' environment but 
+# injects a Zero-Width Space.
+# Expected result: Workflow succeeds immediately (bypasses manual approval) 
+# but visually looks like it deployed to 'production'.
+name: cbs-0298262b-env-attack
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: cbs-production-0298262bu200B
+    steps:
+      - name: Deploy to spoofed environment
+        run: echo "Deployed to SPOOFED environment"
